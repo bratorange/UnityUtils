@@ -122,7 +122,7 @@ namespace com.jsch.UnityUtil
                 return obj;
             }
 
-            if (UnityTypes.DeserializeUnityType(type, JsonUtility.ToJson(dict), out obj)) // case of a Unity type
+            if (UnityTypes.DeserializeUnityType(type, dict, out obj)) // case of a Unity type
             {
                 _pathToObject[path] = obj;
                 return obj;

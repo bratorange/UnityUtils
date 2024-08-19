@@ -1,7 +1,6 @@
 using System.Text;
 using UnityEditor;
 using UnityEngine;
-using System.Text.RegularExpressions;
 
 namespace com.jsch.UnityUtil
 {

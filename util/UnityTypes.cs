@@ -118,91 +118,168 @@ namespace com.jsch.UnityUtil
             return false;
         }
 
-        internal static bool DeserializeUnityType(Type type, string json, out object result)
+        internal static bool DeserializeUnityType(Type type, Dictionary<string, string> json, out object result)
         {
             result = null;
 
             if (type == typeof(Vector2))
             {
-                Vector2 v = JsonUtility.FromJson<Vector2>(json);
-                result = v;
+                result = new Vector2(
+                    float.Parse(json["x"]),
+                    float.Parse(json["y"])
+                );
                 return true;
             }
 
             if (type == typeof(Vector3))
             {
-                Vector3 v = JsonUtility.FromJson<Vector3>(json);
-                result = v;
+                result = new Vector3(
+                    float.Parse(json["x"]),
+                    float.Parse(json["y"]),
+                    float.Parse(json["z"])
+                );
                 return true;
             }
 
             if (type == typeof(Vector4))
             {
-                Vector4 v = JsonUtility.FromJson<Vector4>(json);
-                result = v;
+                result = new Vector4(
+                    float.Parse(json["x"]),
+                    float.Parse(json["y"]),
+                    float.Parse(json["z"]),
+                    float.Parse(json["w"])
+                );
                 return true;
             }
 
             if (type == typeof(Quaternion))
             {
-                Quaternion q = JsonUtility.FromJson<Quaternion>(json);
-                result = q;
+                result = new Quaternion(
+                    float.Parse(json["x"]),
+                    float.Parse(json["y"]),
+                    float.Parse(json["z"]),
+                    float.Parse(json["w"])
+                );
                 return true;
             }
 
             if (type == typeof(Color))
             {
-                Color c = JsonUtility.FromJson<Color>(json);
-                result = c;
+                result = new Color(
+                    float.Parse(json["r"]),
+                    float.Parse(json["g"]),
+                    float.Parse(json["b"]),
+                    float.Parse(json["a"])
+                );
                 return true;
             }
 
             if (type == typeof(Color32))
             {
-                Color32 c = JsonUtility.FromJson<Color32>(json);
-                result = c;
+                result = new Color32(
+                    byte.Parse(json["r"]),
+                    byte.Parse(json["g"]),
+                    byte.Parse(json["b"]),
+                    byte.Parse(json["a"])
+                );
                 return true;
             }
 
             if (type == typeof(Rect))
             {
-                Rect r = JsonUtility.FromJson<Rect>(json);
-                result = r;
+                result = new Rect(
+                    float.Parse(json["x"]),
+                    float.Parse(json["y"]),
+                    float.Parse(json["width"]),
+                    float.Parse(json["height"])
+                );
                 return true;
             }
 
             if (type == typeof(Bounds))
             {
-                Bounds b = JsonUtility.FromJson<Bounds>(json);
-                result = b;
+                Vector3 center = new Vector3(
+                    float.Parse(json["center.x"]),
+                    float.Parse(json["center.y"]),
+                    float.Parse(json["center.z"])
+                );
+                Vector3 size = new Vector3(
+                    float.Parse(json["size.x"]),
+                    float.Parse(json["size.y"]),
+                    float.Parse(json["size.z"])
+                );
+                result = new Bounds(center, size);
                 return true;
             }
 
             if (type == typeof(Matrix4x4))
             {
-                Matrix4x4 m = JsonUtility.FromJson<Matrix4x4>(json);
-                result = m;
+                Matrix4x4 matrix = new Matrix4x4();
+                for (int i = 0; i < 16; i++)
+                {
+                    matrix[i] = float.Parse(json[$"m{i}"]);
+                }
+
+                result = matrix;
                 return true;
             }
 
             if (type == typeof(AnimationCurve))
             {
-                AnimationCurve curve = JsonUtility.FromJson<AnimationCurve>(json);
+                AnimationCurve curve = new AnimationCurve();
+                int keyCount = int.Parse(json["keyCount"]);
+                for (int i = 0; i < keyCount; i++)
+                {
+                    curve.AddKey(new Keyframe(
+                        float.Parse(json[$"key{i}.time"]),
+                        float.Parse(json[$"key{i}.value"]),
+                        float.Parse(json[$"key{i}.inTangent"]),
+                        float.Parse(json[$"key{i}.outTangent"])
+                    ));
+                }
+
                 result = curve;
                 return true;
             }
 
             if (type == typeof(Gradient))
             {
-                Gradient gradient = JsonUtility.FromJson<Gradient>(json);
+                Gradient gradient = new Gradient();
+                int colorKeyCount = int.Parse(json["colorKeyCount"]);
+                int alphaKeyCount = int.Parse(json["alphaKeyCount"]);
+
+                GradientColorKey[] colorKeys = new GradientColorKey[colorKeyCount];
+                GradientAlphaKey[] alphaKeys = new GradientAlphaKey[alphaKeyCount];
+
+                for (int i = 0; i < colorKeyCount; i++)
+                {
+                    colorKeys[i] = new GradientColorKey(
+                        new Color(
+                            float.Parse(json[$"colorKey{i}.r"]),
+                            float.Parse(json[$"colorKey{i}.g"]),
+                            float.Parse(json[$"colorKey{i}.b"]),
+                            float.Parse(json[$"colorKey{i}.a"])
+                        ),
+                        float.Parse(json[$"colorKey{i}.time"])
+                    );
+                }
+
+                for (int i = 0; i < alphaKeyCount; i++)
+                {
+                    alphaKeys[i] = new GradientAlphaKey(
+                        float.Parse(json[$"alphaKey{i}.alpha"]),
+                        float.Parse(json[$"alphaKey{i}.time"])
+                    );
+                }
+
+                gradient.SetKeys(colorKeys, alphaKeys);
                 result = gradient;
                 return true;
             }
 
             if (type == typeof(LayerMask))
             {
-                LayerMask layerMask = JsonUtility.FromJson<LayerMask>(json);
-                result = layerMask;
+                result = (LayerMask)int.Parse(json["value"]);
                 return true;
             }
 

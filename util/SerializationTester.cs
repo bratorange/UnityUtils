@@ -15,7 +15,7 @@ namespace com.jsch.UnityUtil
             set
             {
                 serializedJSON = Serializer.Serialize(value);
-                _scriptableObject = value;
+                _scriptableObject = Serializer.Deserialize<ScriptableObject>(serializedJSON);
             }
         }
 
