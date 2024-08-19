@@ -1,0 +1,9 @@
+{
+  "name": "com.jsch.unityutil",
+  "description": "Helper classes for Unity",
+  "version": "0.1.0",
+  "unity": "2018.1",
+  "displayName": "Unity Utilities",
+  "dependencies": {
+  }
+}
