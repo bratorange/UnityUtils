@@ -138,6 +138,8 @@ namespace com.jsch.UnityUtil.Tests
             originalObj.colorValue = Color.red;
             originalObj.nestedObject = new NestedObject { name = "Nested", value = 100 };
             originalObj.intList = new List<int> { 1, 2, 3, 4, 5 };
+            originalObj.floatList = new List<float> { 1.1f, 2.2f, 3.3f, 4.4f, 5.5f };
+            originalObj.emptyList = new List<int>();
 
             string json = Serializer.Serialize(originalObj);
             ComplexScriptableObject deserializedObj = Serializer.Deserialize<ComplexScriptableObject>(json);
@@ -150,6 +152,8 @@ namespace com.jsch.UnityUtil.Tests
             Assert.AreEqual(originalObj.nestedObject.name, deserializedObj.nestedObject.name);
             Assert.AreEqual(originalObj.nestedObject.value, deserializedObj.nestedObject.value);
             CollectionAssert.AreEqual(originalObj.intList, deserializedObj.intList);
+            CollectionAssert.AreEqual(originalObj.floatList, deserializedObj.floatList);
+            CollectionAssert.AreEqual(originalObj.emptyList, deserializedObj.emptyList);
         }
 
         [Test]
@@ -251,8 +255,10 @@ namespace com.jsch.UnityUtil.Tests
         public Color colorValue;
         public NestedObject nestedObject;
         public List<int> intList;
+        public List<float> floatList;
         public NestedListObject nestedListObject;
         public CircularReferenceObject circularReference;
+        public List<int> emptyList;
     }
 
     public class NestedObject

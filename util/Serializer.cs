@@ -126,9 +126,28 @@ namespace com.jsch.UnityUtil
             {
                 var list = (IList)Activator.CreateInstance(type);
                 var valuesList = (List<object>)values;
+                var elementType = type.GetGenericArguments()[0];
                 for (int i = 0; i < valuesList.Count; i++)
                 {
-                    list.Add(DeserializeObjectFromDict($"{path}[{i}]", (Dictionary<string, object>)valuesList[i]));
+                    var item = DeserializeObjectFromDict($"{path}[{i}]", (Dictionary<string, object>)valuesList[i]);
+                    if (item != null)
+                    {
+                        if (!elementType.IsAssignableFrom(item.GetType()))
+                        {
+                            try
+                            {
+                                item = Convert.ChangeType(item, elementType);
+                            }
+                            catch (InvalidCastException)
+                            {
+                                Debug.LogWarning(
+                                    $"Unable to convert value of type {item.GetType()} to {elementType} for list element at index {i}");
+                                continue;
+                            }
+                        }
+
+                        list.Add(item);
+                    }
                 }
 
                 _pathToObject[path] = list;
