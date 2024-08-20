@@ -56,6 +56,7 @@ namespace com.jsch.UnityUtil
                 {
                     values.Add(SerializeObjectToDict($"{path}[{i}]", list[i]));
                 }
+
                 dict["$values"] = values;
             }
             else if (obj.GetType().IsPrimitive || obj is string || obj.GetType().IsEnum)
@@ -64,13 +65,14 @@ namespace com.jsch.UnityUtil
             }
             else
             {
-                var fieldInfos = obj.GetType().GetFields(BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance);
+                var fieldInfos = obj.GetType()
+                    .GetFields(BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance);
                 foreach (var field in fieldInfos)
                 {
                     if (field.IsNotSerialized) continue;
                     dict[field.Name] = SerializeObjectToDict($"{path}.{field.Name}", field.GetValue(obj));
                 }
-                
+
                 if (obj is UnityEngine.Object unityObj)
                 {
                     dict["name"] = unityObj.name;
@@ -128,11 +130,12 @@ namespace com.jsch.UnityUtil
                 {
                     list.Add(DeserializeObjectFromDict($"{path}[{i}]", (Dictionary<string, object>)valuesList[i]));
                 }
+
                 _pathToObject[path] = list;
                 return list;
             }
 
-            if (type.IsSubclassOf(typeof(Object)))
+            if (type.IsSubclassOf(typeof(UnityEngine.Object)))
             {
                 var unityObj = ScriptableObject.CreateInstance(type);
                 unityObj.name = (string)dict["name"];
@@ -149,10 +152,27 @@ namespace com.jsch.UnityUtil
             foreach (var kvp in dict)
             {
                 if (kvp.Key == "$type") continue;
-                var field = type.GetField(kvp.Key, BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance);
+                var field = type.GetField(kvp.Key,
+                    BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance);
                 if (field != null)
                 {
-                    field.SetValue(obj, DeserializeObjectFromDict($"{path}.{field.Name}", (Dictionary<string, object>)kvp.Value));
+                    object fieldValue =
+                        DeserializeObjectFromDict($"{path}.{field.Name}", (Dictionary<string, object>)kvp.Value);
+                    if (fieldValue != null && !field.FieldType.IsAssignableFrom(fieldValue.GetType()))
+                    {
+                        try
+                        {
+                            fieldValue = Convert.ChangeType(fieldValue, field.FieldType);
+                        }
+                        catch (InvalidCastException)
+                        {
+                            Debug.LogWarning(
+                                $"Unable to assign value of type {fieldValue.GetType()} to field {field.Name} of type {field.FieldType}");
+                            continue;
+                        }
+                    }
+
+                    field.SetValue(obj, fieldValue);
                 }
             }
 
@@ -171,6 +191,7 @@ namespace com.jsch.UnityUtil
                 sb.Append($"\"{kvp.Key}\":");
                 ValueToJson(kvp.Value, sb);
             }
+
             sb.Append("}");
             return sb.ToString();
         }
@@ -215,6 +236,7 @@ namespace com.jsch.UnityUtil
                     first = false;
                     ValueToJson(item, sb);
                 }
+
                 sb.Append("]");
             }
             else if (value.GetType().IsEnum)
@@ -285,14 +307,15 @@ namespace com.jsch.UnityUtil
 
             switch (json[index])
             {
-                case '"': 
+                case '"':
                     string stringValue = ParseString(json, ref index);
                     // We can't check for enum type here, so we'll return the string value
                     // The caller (DeserializeObjectFromDict) will handle enum conversion if needed
                     return stringValue;
                 case '{': return ParseObject(json, ref index);
                 case '[': return ParseArray(json, ref index);
-                case 't': case 'f': return ParseBoolean(json, ref index);
+                case 't':
+                case 'f': return ParseBoolean(json, ref index);
                 case 'n': return ParseNull(json, ref index);
                 default: return ParseNumber(json, ref index);
             }
@@ -314,12 +337,26 @@ namespace com.jsch.UnityUtil
                     c = json[index++];
                     switch (c)
                     {
-                        case '"': case '\\': case '/': sb.Append(c); break;
-                        case 'b': sb.Append('\b'); break;
-                        case 'f': sb.Append('\f'); break;
-                        case 'n': sb.Append('\n'); break;
-                        case 'r': sb.Append('\r'); break;
-                        case 't': sb.Append('\t'); break;
+                        case '"':
+                        case '\\':
+                        case '/':
+                            sb.Append(c);
+                            break;
+                        case 'b':
+                            sb.Append('\b');
+                            break;
+                        case 'f':
+                            sb.Append('\f');
+                            break;
+                        case 'n':
+                            sb.Append('\n');
+                            break;
+                        case 'r':
+                            sb.Append('\r');
+                            break;
+                        case 't':
+                            sb.Append('\t');
+                            break;
                         case 'u':
                             if (index + 4 > json.Length) throw new FormatException("Invalid Unicode escape");
                             sb.Append((char)Convert.ToUInt16(json.Substring(index, 4), 16));
@@ -370,11 +407,13 @@ namespace com.jsch.UnityUtil
                 index += 4;
                 return true;
             }
+
             if (json.Substring(index, 5) == "false")
             {
                 index += 5;
                 return false;
             }
+
             throw new FormatException("Expected 'true' or 'false'");
         }
 
@@ -385,6 +424,7 @@ namespace com.jsch.UnityUtil
                 index += 4;
                 return null;
             }
+
             throw new FormatException("Expected 'null'");
         }
 
@@ -426,7 +466,8 @@ namespace com.jsch.UnityUtil
 
             if (isFloat || hasExponent)
             {
-                if (double.TryParse(numberStr, System.Globalization.NumberStyles.Float, System.Globalization.CultureInfo.InvariantCulture, out double doubleResult))
+                if (double.TryParse(numberStr, System.Globalization.NumberStyles.Float,
+                        System.Globalization.CultureInfo.InvariantCulture, out double doubleResult))
                     return doubleResult;
             }
             else
