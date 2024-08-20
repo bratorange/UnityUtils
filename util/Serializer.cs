@@ -3,9 +3,7 @@ using System.Collections;
 using System.Collections.Generic;
 using System.Linq;
 using System.Reflection;
-using System.Runtime.Serialization;
 using System.Text;
-using UnityEditor;
 using UnityEngine;
 using Object = UnityEngine.Object;
 
@@ -19,246 +17,217 @@ namespace com.jsch.UnityUtil
         public static string Serialize(object obj)
         {
             var serializer = new Serializer();
-            var sb = new StringBuilder();
-            serializer.SerializeObject("root", obj, sb);
-            return sb.ToString();
+            var dict = serializer.SerializeObjectToDict("root", obj);
+            return DictToJson(dict);
         }
 
-        private void SerializeObject(string path, object obj, StringBuilder sb)
+        private Dictionary<string, object> SerializeObjectToDict(string path, object obj)
         {
             if (obj == null)
             {
-                sb.Append("null");
-                return;
+                return null;
             }
 
             if (_objectToPath.TryGetValue(obj, out string existingPath))
             {
-                sb.Append($"{{\"$ref\":\"{existingPath}\"}}");
-                return;
+                return new Dictionary<string, object> { { "$ref", existingPath } };
             }
+
+            var dict = new Dictionary<string, object>();
 
             if (!(obj.GetType().IsPrimitive || obj is string || obj.GetType().IsEnum))
             {
                 _objectToPath[obj] = path;
             }
 
-            sb.Append("{");
-            sb.Append($"\"$type\":\"{obj.GetType().AssemblyQualifiedName}\",");
+            dict["$type"] = obj.GetType().AssemblyQualifiedName;
 
-            if (UnityTypes.SerializeUnityType(obj, sb))
+            if (UnityTypes.SerializeUnityType(obj, out var unityTypeDict))
             {
-                // Unity type serialization successful
+                foreach (var kvp in unityTypeDict)
+                {
+                    dict[kvp.Key] = kvp.Value;
+                }
             }
             else if (obj is IList list)
             {
-                sb.Append("\"$values\":[");
+                var values = new List<object>();
                 for (int i = 0; i < list.Count; i++)
                 {
-                    if (i > 0) sb.Append(",");
-                    SerializeObject($"{path}[{i}]", list[i], sb);
+                    values.Add(SerializeObjectToDict($"{path}[{i}]", list[i]));
                 }
-                sb.Append("]");
+                dict["$values"] = values;
             }
             else if (obj.GetType().IsPrimitive || obj is string || obj.GetType().IsEnum)
             {
-                sb.Append("\"$value\":");
-                SerializePrimitive(obj, sb);
+                dict["$value"] = obj;
             }
             else
             {
                 var fieldInfos = obj.GetType().GetFields(BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance);
-                var kvps = new List<KeyValuePair<string, object>>();
                 foreach (var field in fieldInfos)
                 {
                     if (field.IsNotSerialized) continue;
-                    kvps.Add(new KeyValuePair<string, object>(field.Name, field.GetValue(obj)));
-                }
-                // some unity-object internal properties are not marked as serialized, so we need to add them manually
-                if (obj is UnityEngine.Object unityObj)
-                {
-                    kvps.Add(new KeyValuePair<string, object>("name", unityObj.name));
-                    kvps.Add(new KeyValuePair<string, object>("hideFlags", unityObj.hideFlags));
+                    dict[field.Name] = SerializeObjectToDict($"{path}.{field.Name}", field.GetValue(obj));
                 }
                 
-                bool first = true;
-                foreach (var kvp in kvps)
+                if (obj is UnityEngine.Object unityObj)
                 {
-                    if (!first) sb.Append(",");
-                    first = false;
-                    sb.Append($"\"{kvp.Key}\":");
-                    SerializeObject($"{path}.{kvp.Key}", kvp.Value, sb);
+                    dict["name"] = unityObj.name;
+                    dict["hideFlags"] = unityObj.hideFlags;
                 }
             }
 
-            sb.Append("}");
+            return dict;
         }
 
         public static T Deserialize<T>(string json)
         {
             var serializer = new Serializer();
-            return (T)serializer.DeserializeObject("root", json);
+            var dict = JsonToDict(json);
+            return (T)serializer.DeserializeObjectFromDict("root", dict);
         }
 
-        private object DeserializeObject(string path, string json)
+        private object DeserializeObjectFromDict(string path, Dictionary<string, object> dict)
         {
-            json = json.Trim();
-
-            if (json.StartsWith("{\"$ref\":"))
+            if (dict == null)
             {
-                var refPath = json.Substring(8, json.Length - 9).Trim('"');
-                return _pathToObject[refPath];
+                return null;
             }
 
-            var dict = RecoverJsonDictionary(json);
+            if (dict.TryGetValue("$ref", out object refPath))
+            {
+                return _pathToObject[(string)refPath];
+            }
 
-            string typeString = dict["$type"].Trim('"');
+            string typeString = (string)dict["$type"];
             Type type = Type.GetType(typeString);
             object obj;
 
-            if (type.IsPrimitive || type == typeof(string) || type.IsEnum) // case of a primitive
+            if (type.IsPrimitive || type == typeof(string))
             {
-                obj = DeserializePrimitive(dict["$value"], type);
-                return obj;
+                return dict["$value"];
             }
 
-            if (UnityTypes.DeserializeUnityType(type, dict, out obj)) // case of a Unity type
+            if (type.IsEnum)
+            {
+                return Enum.Parse(type, (string)dict["$value"]);
+            }
+
+            if (UnityTypes.DeserializeUnityType(type, dict, out obj))
             {
                 _pathToObject[path] = obj;
                 return obj;
             }
 
-            if (dict.TryGetValue("$values", out var valuesJSON)) // case of a list
+            if (dict.TryGetValue("$values", out var values))
             {
-                _pathToObject[path] = obj;
                 var list = (IList)Activator.CreateInstance(type);
-                
-                var trimmedJSON = valuesJSON.Trim();
-                if (trimmedJSON.StartsWith("[") && trimmedJSON.EndsWith("]"))
+                var valuesList = (List<object>)values;
+                for (int i = 0; i < valuesList.Count; i++)
                 {
-                    trimmedJSON = trimmedJSON.Substring(1, trimmedJSON.Length - 2);
-                    var items = SplitJsonArray(trimmedJSON);
-                    for (int i = 0; i < items.Count; i++)
-                    {
-                        list.Add(DeserializeObject($"{path}[{i}]", items[i]));
-                    }
+                    list.Add(DeserializeObjectFromDict($"{path}[{i}]", (Dictionary<string, object>)valuesList[i]));
                 }
-
+                _pathToObject[path] = list;
                 return list;
             }
-
-            // case of a class
-            _pathToObject[path] = obj;
 
             if (type.IsSubclassOf(typeof(Object)))
             {
                 var unityObj = ScriptableObject.CreateInstance(type);
-                unityObj.name = DeserializeObject($"{path}.name", dict["name"]) as string;
-                unityObj.hideFlags = DeserializeObject($"{path}.hideFlags", dict["hideFlags"]) as HideFlags? ?? HideFlags.None;
+                unityObj.name = (string)dict["name"];
+                unityObj.hideFlags = (HideFlags)dict["hideFlags"];
                 obj = unityObj;
             }
             else
+            {
                 obj = Activator.CreateInstance(type);
+            }
+
+            _pathToObject[path] = obj;
+
             foreach (var kvp in dict)
             {
                 if (kvp.Key == "$type") continue;
                 var field = type.GetField(kvp.Key, BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance);
                 if (field != null)
                 {
-                    field.SetValue(obj, DeserializeObject($"{path}.{field.Name}",kvp.Value));
+                    field.SetValue(obj, DeserializeObjectFromDict($"{path}.{field.Name}", (Dictionary<string, object>)kvp.Value));
                 }
             }
 
             return obj;
         }
 
-        private Dictionary<string, string> RecoverJsonDictionary(string json)
+        private static string DictToJson(Dictionary<string, object> dict)
         {
-            json = json.Substring(1, json.Length - 2);
-
-            var pairs = SplitJsonPairs(json);
-            var dict = new Dictionary<string, string>();
-
-            foreach (var pair in pairs)
+            var sb = new StringBuilder();
+            sb.Append("{");
+            bool first = true;
+            foreach (var kvp in dict)
             {
-                var colonIndex = pair.IndexOf(':');
-                var key = pair.Substring(0, colonIndex).Trim().Trim('"');
-                var value = pair.Substring(colonIndex + 1).Trim();
-                dict[key] = value;
+                if (!first) sb.Append(",");
+                first = false;
+                sb.Append($"\"{kvp.Key}\":");
+                ValueToJson(kvp.Value, sb);
             }
-
-            return dict;
+            sb.Append("}");
+            return sb.ToString();
         }
 
-
-        private object DeserializePrimitive(string value, Type type)
+        private static void ValueToJson(object value, StringBuilder sb)
         {
-            value = value.Trim('"');
-            if (type == typeof(float))
-                return float.Parse(value);
-            if (type == typeof(double))
-                return double.Parse(value);
-            if (type == typeof(bool))
-                return bool.Parse(value);
-            if (type == typeof(int))
-                return int.Parse(value);
-            if (type == typeof(long))
-                return long.Parse(value);
-            if (type == typeof(char))
-                return value[0];
-            if (type == typeof(string))
-                return value;
-            if (type.IsEnum)
-                return Enum.Parse(type, value);
-
-            throw new NotSupportedException($"Unsupported primitive type: {type}");
-        }
-        private void SerializePrimitive(object obj, StringBuilder sb)
-        {
-            if (obj == null)
+            if (value == null)
             {
                 sb.Append("null");
-                return;
             }
-
-            switch (obj)
+            else if (value is string s)
             {
-                case bool b:
-                    sb.Append(b.ToString().ToLowerInvariant());
-                    break;
-                case byte by:
-                case sbyte sby:
-                case short s:
-                case ushort us:
-                case int i:
-                case uint ui:
-                case long l:
-                case ulong ul:
-                    sb.Append(obj);
-                    break;
-                case float f:
-                    sb.Append(f.ToString("G9", System.Globalization.CultureInfo.InvariantCulture));
-                    break;
-                case double d:
-                    sb.Append(d.ToString("G17", System.Globalization.CultureInfo.InvariantCulture));
-                    break;
-                case decimal dec:
-                    sb.Append(dec.ToString(System.Globalization.CultureInfo.InvariantCulture));
-                    break;
-                case char c:
-                    sb.Append('"').Append(EscapeChar(c)).Append('"');
-                    break;
-                case string s:
-                    sb.Append('"').Append(EscapeString(s)).Append('"');
-                    break;
-                case Enum e:
-                    sb.Append('"').Append(e.ToString()).Append('"');
-                    break;
-                default:
-                    throw new ArgumentException($"Unsupported primitive type: {obj.GetType()}");
+                sb.Append($"\"{EscapeJsonString(s)}\"");
+            }
+            else if (value is bool b)
+            {
+                sb.Append(b.ToString().ToLower());
+            }
+            else if (value is float f)
+            {
+                sb.Append(f.ToString("R", System.Globalization.CultureInfo.InvariantCulture));
+            }
+            else if (value is double d)
+            {
+                sb.Append(d.ToString("R", System.Globalization.CultureInfo.InvariantCulture));
+            }
+            else if (value is decimal m)
+            {
+                sb.Append(m.ToString(System.Globalization.CultureInfo.InvariantCulture));
+            }
+            else if (value is Dictionary<string, object> dict)
+            {
+                sb.Append(DictToJson(dict));
+            }
+            else if (value is IList l)
+            {
+                sb.Append("[");
+                bool first = true;
+                foreach (var item in l)
+                {
+                    if (!first) sb.Append(",");
+                    first = false;
+                    ValueToJson(item, sb);
+                }
+                sb.Append("]");
+            }
+            else if (value.GetType().IsEnum)
+            {
+                sb.Append($"\"{value}\"");
+            }
+            else
+            {
+                sb.Append(Convert.ToString(value, System.Globalization.CultureInfo.InvariantCulture));
             }
         }
-        private string EscapeString(string s)
+
+        private static string EscapeJsonString(string s)
         {
             return s.Replace("\\", "\\\\")
                 .Replace("\"", "\\\"")
@@ -268,123 +237,214 @@ namespace com.jsch.UnityUtil
                 .Replace("\b", "\\b")
                 .Replace("\f", "\\f");
         }
-        private string EscapeChar(char c)
-        {
-            return c switch
-            {
-                '\\' => "\\\\",
-                '\"' => "\\\"",
-                '\n' => "\\n",
-                '\r' => "\\r",
-                '\t' => "\\t",
-                '\b' => "\\b",
-                '\f' => "\\f",
-                _ => c.ToString()
-            };
-        }
-        private List<string> SplitJsonPairs(string json)
-        {
-            var pairs = new List<string>();
-            var currentPair = new StringBuilder();
-            var depth = 0;
-            var inQuotes = false;
-            var escapeNext = false;
 
-            foreach (var c in json)
+        private static Dictionary<string, object> JsonToDict(string json)
+        {
+            int index = 0;
+            return ParseObject(json, ref index);
+        }
+
+        private static Dictionary<string, object> ParseObject(string json, ref int index)
+        {
+            var dict = new Dictionary<string, object>();
+
+            ConsumeWhitespace(json, ref index);
+            if (json[index++] != '{') throw new FormatException("Expected '{'");
+
+            while (true)
             {
-                if (escapeNext)
+                ConsumeWhitespace(json, ref index);
+                if (json[index] == '}')
                 {
-                    currentPair.Append(c);
-                    escapeNext = false;
-                    continue;
+                    index++;
+                    return dict;
                 }
 
+                string key = ParseString(json, ref index);
+                ConsumeWhitespace(json, ref index);
+                if (json[index++] != ':') throw new FormatException("Expected ':'");
+                ConsumeWhitespace(json, ref index);
+
+                dict[key] = ParseValue(json, ref index);
+
+                ConsumeWhitespace(json, ref index);
+                if (json[index] == ',')
+                {
+                    index++;
+                }
+                else if (json[index] != '}')
+                {
+                    throw new FormatException("Expected ',' or '}'");
+                }
+            }
+        }
+
+        private static object ParseValue(string json, ref int index)
+        {
+            ConsumeWhitespace(json, ref index);
+
+            switch (json[index])
+            {
+                case '"': 
+                    string stringValue = ParseString(json, ref index);
+                    // We can't check for enum type here, so we'll return the string value
+                    // The caller (DeserializeObjectFromDict) will handle enum conversion if needed
+                    return stringValue;
+                case '{': return ParseObject(json, ref index);
+                case '[': return ParseArray(json, ref index);
+                case 't': case 'f': return ParseBoolean(json, ref index);
+                case 'n': return ParseNull(json, ref index);
+                default: return ParseNumber(json, ref index);
+            }
+        }
+
+
+        private static string ParseString(string json, ref int index)
+        {
+            var sb = new StringBuilder();
+            index++; // Skip opening quote
+            while (true)
+            {
+                if (index >= json.Length) throw new FormatException("Unterminated string");
+                char c = json[index++];
+                if (c == '"') return sb.ToString();
                 if (c == '\\')
                 {
-                    escapeNext = true;
-                    currentPair.Append(c);
-                    continue;
-                }
-
-                if (c == '"' && !escapeNext)
-                {
-                    inQuotes = !inQuotes;
-                }
-
-                if (!inQuotes)
-                {
-                    if (c == '{' || c == '[')
+                    if (index >= json.Length) throw new FormatException("Unterminated string escape");
+                    c = json[index++];
+                    switch (c)
                     {
-                        depth++;
+                        case '"': case '\\': case '/': sb.Append(c); break;
+                        case 'b': sb.Append('\b'); break;
+                        case 'f': sb.Append('\f'); break;
+                        case 'n': sb.Append('\n'); break;
+                        case 'r': sb.Append('\r'); break;
+                        case 't': sb.Append('\t'); break;
+                        case 'u':
+                            if (index + 4 > json.Length) throw new FormatException("Invalid Unicode escape");
+                            sb.Append((char)Convert.ToUInt16(json.Substring(index, 4), 16));
+                            index += 4;
+                            break;
+                        default: throw new FormatException("Invalid string escape");
                     }
-                    else if (c == '}' || c == ']')
-                    {
-                        depth--;
-                    }
-                }
-
-                if (c == ',' && depth == 0 && !inQuotes)
-                {
-                    pairs.Add(currentPair.ToString().Trim());
-                    currentPair.Clear();
                 }
                 else
                 {
-                    currentPair.Append(c);
+                    sb.Append(c);
                 }
             }
-
-            if (currentPair.Length > 0)
-            {
-                pairs.Add(currentPair.ToString().Trim());
-            }
-
-            return pairs;
         }
-        private List<string> SplitJsonArray(string json)
+
+        private static List<object> ParseArray(string json, ref int index)
         {
-            var items = new List<string>();
-            var currentItem = new StringBuilder();
-            var depth = 0;
-            var inQuotes = false;
+            var list = new List<object>();
+            index++; // Skip opening bracket
 
-            foreach (var c in json)
+            while (true)
             {
-                if (c == '"' && (currentItem.Length == 0 || currentItem[currentItem.Length - 1] != '\\'))
+                ConsumeWhitespace(json, ref index);
+                if (json[index] == ']')
                 {
-                    inQuotes = !inQuotes;
+                    index++;
+                    return list;
                 }
 
-                if (!inQuotes)
-                {
-                    if (c == '{' || c == '[')
-                    {
-                        depth++;
-                    }
-                    else if (c == '}' || c == ']')
-                    {
-                        depth--;
-                    }
-                }
+                list.Add(ParseValue(json, ref index));
 
-                if (c == ',' && depth == 0 && !inQuotes)
+                ConsumeWhitespace(json, ref index);
+                if (json[index] == ',')
                 {
-                    items.Add(currentItem.ToString().Trim());
-                    currentItem.Clear();
+                    index++;
                 }
-                else
+                else if (json[index] != ']')
                 {
-                    currentItem.Append(c);
+                    throw new FormatException("Expected ',' or ']'");
                 }
             }
-
-            if (currentItem.Length > 0)
-            {
-                items.Add(currentItem.ToString().Trim());
-            }
-
-            return items;
         }
 
+        private static bool ParseBoolean(string json, ref int index)
+        {
+            if (json.Substring(index, 4) == "true")
+            {
+                index += 4;
+                return true;
+            }
+            if (json.Substring(index, 5) == "false")
+            {
+                index += 5;
+                return false;
+            }
+            throw new FormatException("Expected 'true' or 'false'");
+        }
+
+        private static object ParseNull(string json, ref int index)
+        {
+            if (json.Substring(index, 4) == "null")
+            {
+                index += 4;
+                return null;
+            }
+            throw new FormatException("Expected 'null'");
+        }
+
+        private static object ParseNumber(string json, ref int index)
+        {
+            int startIndex = index;
+            bool isFloat = false;
+            bool hasExponent = false;
+
+            // Allow leading minus sign
+            if (json[index] == '-')
+                index++;
+
+            // Parse integer part
+            while (index < json.Length && char.IsDigit(json[index]))
+                index++;
+
+            // Parse fractional part
+            if (index < json.Length && json[index] == '.')
+            {
+                isFloat = true;
+                index++;
+                while (index < json.Length && char.IsDigit(json[index]))
+                    index++;
+            }
+
+            // Parse exponent part
+            if (index < json.Length && (json[index] == 'e' || json[index] == 'E'))
+            {
+                hasExponent = true;
+                index++;
+                if (index < json.Length && (json[index] == '+' || json[index] == '-'))
+                    index++;
+                while (index < json.Length && char.IsDigit(json[index]))
+                    index++;
+            }
+
+            string numberStr = json.Substring(startIndex, index - startIndex);
+
+            if (isFloat || hasExponent)
+            {
+                if (double.TryParse(numberStr, System.Globalization.NumberStyles.Float, System.Globalization.CultureInfo.InvariantCulture, out double doubleResult))
+                    return doubleResult;
+            }
+            else
+            {
+                if (long.TryParse(numberStr, out long longResult))
+                    return longResult;
+            }
+
+            throw new FormatException($"Invalid number format: {numberStr}");
+        }
+
+
+        private static void ConsumeWhitespace(string json, ref int index)
+        {
+            while (index < json.Length && char.IsWhiteSpace(json[index]))
+            {
+                index++;
+            }
+        }
     }
 }
