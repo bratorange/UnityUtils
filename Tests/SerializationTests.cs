@@ -4,7 +4,6 @@ using System.Collections.Generic;
 
 namespace com.jsch.UnityUtil.Tests
 {
-
     [TestFixture]
     public class SerializationTests
     {
@@ -229,6 +228,17 @@ namespace com.jsch.UnityUtil.Tests
             Assert.AreEqual(originalObj.intValue, deserializedObj.intValue);
             Assert.AreEqual(originalObj.derivedValue, deserializedObj.derivedValue);
         }
+
+        [Test]
+        public void TestSerializeDeserializeEnum()
+        {
+            TestEnum originalEnum = TestEnum.Value2;
+            string json = Serializer.Serialize(originalEnum);
+            TestEnum deserializedEnum = Serializer.Deserialize<TestEnum>(json);
+
+            Assert.AreEqual(originalEnum, deserializedEnum);
+            Assert.AreEqual(TestEnum.Value2, deserializedEnum);
+        }
     }
 
 // Test classes
@@ -265,5 +275,12 @@ namespace com.jsch.UnityUtil.Tests
     public class DerivedScriptableObject : ComplexScriptableObject
     {
         public string derivedValue;
+    }
+
+    public enum TestEnum
+    {
+        Value1,
+        Value2,
+        Value3
     }
 }

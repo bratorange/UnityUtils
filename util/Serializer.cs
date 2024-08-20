@@ -136,7 +136,7 @@ namespace com.jsch.UnityUtil
             {
                 var unityObj = ScriptableObject.CreateInstance(type);
                 unityObj.name = (string)dict["name"];
-                unityObj.hideFlags = (HideFlags)dict["hideFlags"];
+                unityObj.hideFlags = (HideFlags)Enum.Parse(typeof(HideFlags), (string)dict["hideFlags"]);
                 obj = unityObj;
             }
             else
