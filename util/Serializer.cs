@@ -53,6 +53,18 @@ namespace com.jsch.UnityUtil
                     dict[kvp.Key] = kvp.Value;
                 }
             }
+            else if (obj is IDictionary dictionary)
+            {
+                var keys = new List<object>();
+                var values = new List<object>();
+                foreach (DictionaryEntry entry in dictionary)
+                {
+                    keys.Add(SerializeObjectToDict($"{path}[key]", entry.Key));
+                    values.Add(SerializeObjectToDict($"{path}[{entry.Key}]", entry.Value));
+                }
+                dict["$keys"] = keys;
+                dict["$values"] = values;
+            }
             else if (obj is IList list)
             {
                 var values = new List<object>();
@@ -60,7 +72,6 @@ namespace com.jsch.UnityUtil
                 {
                     values.Add(SerializeObjectToDict($"{path}[{i}]", list[i]));
                 }
-
                 dict["$values"] = values;
             }
             else if (obj.GetType().IsPrimitive || obj is string)
@@ -83,7 +94,6 @@ namespace com.jsch.UnityUtil
                         if (field.IsNotSerialized) continue;
                         dict[field.Name] = SerializeObjectToDict($"{path}.{field.Name}", field.GetValue(obj));
                     }
-
                     currentType = currentType.BaseType;
                 }
             }
@@ -128,10 +138,31 @@ namespace com.jsch.UnityUtil
             {
                 _pathToObject[path] = obj;
             }
-            else if (dict.TryGetValue("$values", out var values))
+            else if (dict.TryGetValue("$keys", out var keys) && dict.TryGetValue("$values", out var values))
+            {
+                if (typeof(IDictionary).IsAssignableFrom(type))
+                {
+                    var dictionary = (IDictionary)Activator.CreateInstance(type);
+                    var keysList = (List<object>)keys;
+                    var valuesList = (List<object>)values;
+                    for (int i = 0; i < keysList.Count; i++)
+                    {
+                        object key = DeserializeObjectFromDict($"{path}[key]", (Dictionary<string, object>)keysList[i]);
+                        object value = DeserializeObjectFromDict($"{path}[{key}]", (Dictionary<string, object>)valuesList[i]);
+                        dictionary.Add(key, value);
+                    }
+                    obj = dictionary;
+                }
+                else
+                {
+                    throw new InvalidOperationException($"Expected IDictionary, but got {type}");
+                }
+                _pathToObject[path] = obj;
+            }
+            else if (dict.TryGetValue("$values", out var listValues))
             {
                 var list = (IList)Activator.CreateInstance(type);
-                var valuesList = (List<object>)values;
+                var valuesList = (List<object>)listValues;
                 var elementType = type.GetGenericArguments()[0];
                 for (int i = 0; i < valuesList.Count; i++)
                 {
@@ -151,11 +182,9 @@ namespace com.jsch.UnityUtil
                                 continue;
                             }
                         }
-
                         list.Add(item);
                     }
                 }
-
                 obj = list;
                 _pathToObject[path] = obj;
             }
@@ -178,7 +207,6 @@ namespace com.jsch.UnityUtil
                     {
                         unityObj.name = (string)name;
                     }
-
                     if (dict.TryGetValue("$hideFlags", out object hideFlags))
                     {
                         unityObj.hideFlags = (HideFlags)Convert.ToInt32(hideFlags);
@@ -219,11 +247,9 @@ namespace com.jsch.UnityUtil
                                     }
                                 }
                             }
-
                             field.SetValue(obj, fieldValue);
                         }
                     }
-
                     currentType = currentType.BaseType;
                 }
             }
