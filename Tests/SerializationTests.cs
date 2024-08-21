@@ -243,9 +243,57 @@ namespace com.jsch.UnityUtil.Tests
             Assert.AreEqual(originalEnum, deserializedEnum);
             Assert.AreEqual(TestEnum.Value2, deserializedEnum);
         }
+
+        [Test]
+        public void TestSerializeDeserializePrivateFieldsInDerivedScriptableObject()
+        {
+            // Create a test instance
+            var originalObj = ScriptableObject.CreateInstance<DerivedScriptableObjectWithPrivateFields>();
+            originalObj.SetPrivateBaseValue(42);
+            originalObj.SetPrivateDerivedValue("Hello, World!");
+
+            // Serialize the object
+            string json = Serializer.Serialize(originalObj);
+
+            // Deserialize the object
+            var deserializedObj = Serializer.Deserialize<DerivedScriptableObjectWithPrivateFields>(json);
+
+            // Assert that the private fields are correctly serialized and deserialized
+            Assert.AreEqual(42, deserializedObj.GetPrivateBaseValue());
+            Assert.AreEqual("Hello, World!", deserializedObj.GetPrivateDerivedValue());
+        }
     }
 
-// Test classes
+    public class BaseScriptableObject : ScriptableObject
+    {
+        private int privateBaseField;
+
+        public void SetPrivateBaseValue(int value)
+        {
+            privateBaseField = value;
+        }
+
+        public int GetPrivateBaseValue()
+        {
+            return privateBaseField;
+        }
+    }
+
+    public class DerivedScriptableObjectWithPrivateFields : BaseScriptableObject
+    {
+        private string privateDerivedField;
+
+        public void SetPrivateDerivedValue(string value)
+        {
+            privateDerivedField = value;
+        }
+
+        public string GetPrivateDerivedValue()
+        {
+            return privateDerivedField;
+        }
+    }
+
     public class ComplexScriptableObject : ScriptableObject
     {
         public int intValue;

@@ -1,11 +1,9 @@
 using System;
 using System.Collections;
 using System.Collections.Generic;
-using System.Linq;
 using System.Reflection;
 using System.Text;
 using UnityEngine;
-using Object = UnityEngine.Object;
 
 namespace com.jsch.UnityUtil
 {
@@ -62,6 +60,7 @@ namespace com.jsch.UnityUtil
                 {
                     values.Add(SerializeObjectToDict($"{path}[{i}]", list[i]));
                 }
+
                 dict["$values"] = values;
             }
             else if (obj.GetType().IsPrimitive || obj is string)
@@ -74,12 +73,18 @@ namespace com.jsch.UnityUtil
             }
             else
             {
-                var fieldInfos = obj.GetType()
-                    .GetFields(BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance);
-                foreach (var field in fieldInfos)
+                Type currentType = obj.GetType();
+                while (currentType != null)
                 {
-                    if (field.IsNotSerialized) continue;
-                    dict[field.Name] = SerializeObjectToDict($"{path}.{field.Name}", field.GetValue(obj));
+                    var fieldInfos = currentType.GetFields(BindingFlags.Public | BindingFlags.NonPublic |
+                                                           BindingFlags.Instance | BindingFlags.DeclaredOnly);
+                    foreach (var field in fieldInfos)
+                    {
+                        if (field.IsNotSerialized) continue;
+                        dict[field.Name] = SerializeObjectToDict($"{path}.{field.Name}", field.GetValue(obj));
+                    }
+
+                    currentType = currentType.BaseType;
                 }
             }
 
@@ -167,57 +172,64 @@ namespace com.jsch.UnityUtil
 
                 _pathToObject[path] = obj;
 
-                foreach (var kvp in dict)
+                if (obj is UnityEngine.Object unityObj)
                 {
-                    if (kvp.Key == "$type") continue;
-
-                    if (kvp.Key == "$name" && obj is UnityEngine.Object unityObj)
+                    if (dict.TryGetValue("$name", out object name))
                     {
-                        unityObj.name = (string)kvp.Value;
-                        continue;
+                        unityObj.name = (string)name;
                     }
 
-                    if (kvp.Key == "$hideFlags" && obj is UnityEngine.Object unityObjFlags)
+                    if (dict.TryGetValue("$hideFlags", out object hideFlags))
                     {
-                        unityObjFlags.hideFlags = (HideFlags)Convert.ToInt32(kvp.Value);
-                        continue;
+                        unityObj.hideFlags = (HideFlags)Convert.ToInt32(hideFlags);
                     }
+                }
 
-                    var field = type.GetField(kvp.Key,
-                        BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance);
-                    if (field != null)
+                Type currentType = type;
+                while (currentType != null)
+                {
+                    foreach (var kvp in dict)
                     {
-                        object fieldValue = DeserializeObjectFromDict($"{path}.{field.Name}",
-                            (Dictionary<string, object>)kvp.Value);
-                        if (fieldValue != null && !field.FieldType.IsAssignableFrom(fieldValue.GetType()))
+                        if (kvp.Key == "$type" || kvp.Key == "$name" || kvp.Key == "$hideFlags") continue;
+
+                        var field = currentType.GetField(kvp.Key,
+                            BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance |
+                            BindingFlags.DeclaredOnly);
+                        if (field != null)
                         {
-                            if (field.FieldType.IsEnum)
+                            object fieldValue = DeserializeObjectFromDict($"{path}.{field.Name}",
+                                (Dictionary<string, object>)kvp.Value);
+                            if (fieldValue != null && !field.FieldType.IsAssignableFrom(fieldValue.GetType()))
                             {
-                                fieldValue = Enum.Parse(field.FieldType, fieldValue.ToString());
-                            }
-                            else
-                            {
-                                try
+                                if (field.FieldType.IsEnum)
                                 {
-                                    fieldValue = Convert.ChangeType(fieldValue, field.FieldType);
+                                    fieldValue = Enum.Parse(field.FieldType, fieldValue.ToString());
                                 }
-                                catch (InvalidCastException)
+                                else
                                 {
-                                    Debug.LogWarning(
-                                        $"Unable to assign value of type {fieldValue.GetType()} to field {field.Name} of type {field.FieldType}");
-                                    continue;
+                                    try
+                                    {
+                                        fieldValue = Convert.ChangeType(fieldValue, field.FieldType);
+                                    }
+                                    catch (InvalidCastException)
+                                    {
+                                        Debug.LogWarning(
+                                            $"Unable to assign value of type {fieldValue.GetType()} to field {field.Name} of type {field.FieldType}");
+                                        continue;
+                                    }
                                 }
                             }
-                        }
 
-                        field.SetValue(obj, fieldValue);
+                            field.SetValue(obj, fieldValue);
+                        }
                     }
+
+                    currentType = currentType.BaseType;
                 }
             }
 
             return obj;
         }
-
 
         private static string DictToJson(Dictionary<string, object> dict)
         {
