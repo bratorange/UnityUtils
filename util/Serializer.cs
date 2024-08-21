@@ -4,6 +4,7 @@ using System.Collections.Generic;
 using System.Reflection;
 using System.Text;
 using UnityEngine;
+using System.Runtime.Serialization;
 
 namespace com.jsch.UnityUtil
 {
@@ -142,7 +143,7 @@ namespace com.jsch.UnityUtil
             {
                 if (typeof(IDictionary).IsAssignableFrom(type))
                 {
-                    var dictionary = (IDictionary)Activator.CreateInstance(type);
+                    var dictionary = (IDictionary)CreateInstance(type);
                     var keysList = (List<object>)keys;
                     var valuesList = (List<object>)values;
                     for (int i = 0; i < keysList.Count; i++)
@@ -161,7 +162,7 @@ namespace com.jsch.UnityUtil
             }
             else if (dict.TryGetValue("$values", out var listValues))
             {
-                var list = (IList)Activator.CreateInstance(type);
+                var list = (IList)CreateInstance(type);
                 var valuesList = (List<object>)listValues;
                 var elementType = type.GetGenericArguments()[0];
                 for (int i = 0; i < valuesList.Count; i++)
@@ -190,14 +191,7 @@ namespace com.jsch.UnityUtil
             }
             else
             {
-                if (type.IsSubclassOf(typeof(UnityEngine.Object)))
-                {
-                    obj = ScriptableObject.CreateInstance(type);
-                }
-                else
-                {
-                    obj = Activator.CreateInstance(type);
-                }
+                obj = CreateInstance(type);
 
                 _pathToObject[path] = obj;
 
@@ -378,7 +372,39 @@ namespace com.jsch.UnityUtil
                 }
             }
         }
+        
+        private object CreateInstance(Type type)
+        {
+            object instance;
 
+            if (typeof(UnityEngine.Object).IsAssignableFrom(type))
+            {
+                return ScriptableObject.CreateInstance(type);
+            }
+
+            try
+            {
+                // Try to use Activator.CreateInstance first
+                instance = Activator.CreateInstance(type);
+            }
+            catch (MissingMethodException)
+            {
+                // If Activator.CreateInstance fails, use FormatterServices.GetUninitializedObject
+                instance = FormatterServices.GetUninitializedObject(type);
+        
+                // Initialize non-primitive fields to their default values
+                foreach (var field in type.GetFields(BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance))
+                {
+                    if (!field.FieldType.IsPrimitive && field.FieldType != typeof(string))
+                    {
+                        field.SetValue(instance, null);
+                    }
+                }
+            }
+            return instance;
+        }
+
+        
         private static object ParseValue(string json, ref int index)
         {
             ConsumeWhitespace(json, ref index);
