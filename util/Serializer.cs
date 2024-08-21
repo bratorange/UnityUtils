@@ -56,12 +56,15 @@ namespace com.jsch.UnityUtil
                 {
                     values.Add(SerializeObjectToDict($"{path}[{i}]", list[i]));
                 }
-
                 dict["$values"] = values;
             }
-            else if (obj.GetType().IsPrimitive || obj is string || obj.GetType().IsEnum)
+            else if (obj.GetType().IsPrimitive || obj is string)
             {
                 dict["$value"] = obj;
+            }
+            else if (obj.GetType().IsEnum)
+            {
+                dict["$value"] = obj.ToString();
             }
             else
             {
@@ -71,12 +74,6 @@ namespace com.jsch.UnityUtil
                 {
                     if (field.IsNotSerialized) continue;
                     dict[field.Name] = SerializeObjectToDict($"{path}.{field.Name}", field.GetValue(obj));
-                }
-
-                if (obj is UnityEngine.Object unityObj)
-                {
-                    dict["name"] = unityObj.name;
-                    dict["hideFlags"] = unityObj.hideFlags;
                 }
             }
 
@@ -140,26 +137,20 @@ namespace com.jsch.UnityUtil
                             }
                             catch (InvalidCastException)
                             {
-                                Debug.LogWarning(
-                                    $"Unable to convert value of type {item.GetType()} to {elementType} for list element at index {i}");
+                                Debug.LogWarning($"Unable to convert value of type {item.GetType()} to {elementType} for list element at index {i}");
                                 continue;
                             }
                         }
-
                         list.Add(item);
                     }
                 }
-
                 _pathToObject[path] = list;
                 return list;
             }
 
             if (type.IsSubclassOf(typeof(UnityEngine.Object)))
             {
-                var unityObj = ScriptableObject.CreateInstance(type);
-                unityObj.name = (string)dict["name"];
-                unityObj.hideFlags = (HideFlags)Enum.Parse(typeof(HideFlags), (string)dict["hideFlags"]);
-                obj = unityObj;
+                obj = ScriptableObject.CreateInstance(type);
             }
             else
             {
@@ -170,27 +161,31 @@ namespace com.jsch.UnityUtil
 
             foreach (var kvp in dict)
             {
-                if (kvp.Key == "$type") continue;
-                var field = type.GetField(kvp.Key,
-                    BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance);
+                if (kvp.Key.StartsWith("$")) continue;
+                var field = type.GetField(kvp.Key, BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance);
                 if (field != null)
                 {
-                    object fieldValue =
-                        DeserializeObjectFromDict($"{path}.{field.Name}", (Dictionary<string, object>)kvp.Value);
+                    object fieldValue = DeserializeObjectFromDict($"{path}.{field.Name}", (Dictionary<string, object>)kvp.Value);
                     if (fieldValue != null && !field.FieldType.IsAssignableFrom(fieldValue.GetType()))
                     {
-                        try
+                        if (field.FieldType.IsEnum)
                         {
-                            fieldValue = Convert.ChangeType(fieldValue, field.FieldType);
+                            fieldValue = Enum.Parse(field.FieldType, fieldValue.ToString());
                         }
-                        catch (InvalidCastException)
+                        else
                         {
-                            Debug.LogWarning(
-                                $"Unable to assign value of type {fieldValue.GetType()} to field {field.Name} of type {field.FieldType}");
-                            continue;
+                            try
+                            {
+                                fieldValue = Convert.ChangeType(fieldValue, field.FieldType);
+                            }
+                            catch (InvalidCastException)
+                            {
+                                Debug.LogWarning(
+                                    $"Unable to assign value of type {fieldValue.GetType()} to field {field.Name} of type {field.FieldType}");
+                                continue;
+                            }
                         }
                     }
-
                     field.SetValue(obj, fieldValue);
                 }
             }
