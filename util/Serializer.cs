@@ -42,6 +42,12 @@ namespace com.jsch.UnityUtil
 
             dict["$type"] = obj.GetType().AssemblyQualifiedName;
 
+            if (obj is UnityEngine.Object unityObject)
+            {
+                dict["$name"] = unityObject.name;
+                dict["$hideFlags"] = (int)unityObject.hideFlags;
+            }
+
             if (UnityTypes.SerializeUnityType(obj, out var unityTypeDict))
             {
                 foreach (var kvp in unityTypeDict)
@@ -116,10 +122,8 @@ namespace com.jsch.UnityUtil
             if (UnityTypes.DeserializeUnityType(type, dict, out obj))
             {
                 _pathToObject[path] = obj;
-                return obj;
             }
-
-            if (dict.TryGetValue("$values", out var values))
+            else if (dict.TryGetValue("$values", out var values))
             {
                 var list = (IList)Activator.CreateInstance(type);
                 var valuesList = (List<object>)values;
@@ -137,61 +141,83 @@ namespace com.jsch.UnityUtil
                             }
                             catch (InvalidCastException)
                             {
-                                Debug.LogWarning($"Unable to convert value of type {item.GetType()} to {elementType} for list element at index {i}");
+                                Debug.LogWarning(
+                                    $"Unable to convert value of type {item.GetType()} to {elementType} for list element at index {i}");
                                 continue;
                             }
                         }
+
                         list.Add(item);
                     }
                 }
-                _pathToObject[path] = list;
-                return list;
-            }
 
-            if (type.IsSubclassOf(typeof(UnityEngine.Object)))
-            {
-                obj = ScriptableObject.CreateInstance(type);
+                obj = list;
+                _pathToObject[path] = obj;
             }
             else
             {
-                obj = Activator.CreateInstance(type);
-            }
-
-            _pathToObject[path] = obj;
-
-            foreach (var kvp in dict)
-            {
-                if (kvp.Key.StartsWith("$")) continue;
-                var field = type.GetField(kvp.Key, BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance);
-                if (field != null)
+                if (type.IsSubclassOf(typeof(UnityEngine.Object)))
                 {
-                    object fieldValue = DeserializeObjectFromDict($"{path}.{field.Name}", (Dictionary<string, object>)kvp.Value);
-                    if (fieldValue != null && !field.FieldType.IsAssignableFrom(fieldValue.GetType()))
+                    obj = ScriptableObject.CreateInstance(type);
+                }
+                else
+                {
+                    obj = Activator.CreateInstance(type);
+                }
+
+                _pathToObject[path] = obj;
+
+                foreach (var kvp in dict)
+                {
+                    if (kvp.Key == "$type") continue;
+
+                    if (kvp.Key == "$name" && obj is UnityEngine.Object unityObj)
                     {
-                        if (field.FieldType.IsEnum)
-                        {
-                            fieldValue = Enum.Parse(field.FieldType, fieldValue.ToString());
-                        }
-                        else
-                        {
-                            try
-                            {
-                                fieldValue = Convert.ChangeType(fieldValue, field.FieldType);
-                            }
-                            catch (InvalidCastException)
-                            {
-                                Debug.LogWarning(
-                                    $"Unable to assign value of type {fieldValue.GetType()} to field {field.Name} of type {field.FieldType}");
-                                continue;
-                            }
-                        }
+                        unityObj.name = (string)kvp.Value;
+                        continue;
                     }
-                    field.SetValue(obj, fieldValue);
+
+                    if (kvp.Key == "$hideFlags" && obj is UnityEngine.Object unityObjFlags)
+                    {
+                        unityObjFlags.hideFlags = (HideFlags)Convert.ToInt32(kvp.Value);
+                        continue;
+                    }
+
+                    var field = type.GetField(kvp.Key,
+                        BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance);
+                    if (field != null)
+                    {
+                        object fieldValue = DeserializeObjectFromDict($"{path}.{field.Name}",
+                            (Dictionary<string, object>)kvp.Value);
+                        if (fieldValue != null && !field.FieldType.IsAssignableFrom(fieldValue.GetType()))
+                        {
+                            if (field.FieldType.IsEnum)
+                            {
+                                fieldValue = Enum.Parse(field.FieldType, fieldValue.ToString());
+                            }
+                            else
+                            {
+                                try
+                                {
+                                    fieldValue = Convert.ChangeType(fieldValue, field.FieldType);
+                                }
+                                catch (InvalidCastException)
+                                {
+                                    Debug.LogWarning(
+                                        $"Unable to assign value of type {fieldValue.GetType()} to field {field.Name} of type {field.FieldType}");
+                                    continue;
+                                }
+                            }
+                        }
+
+                        field.SetValue(obj, fieldValue);
+                    }
                 }
             }
 
             return obj;
         }
+
 
         private static string DictToJson(Dictionary<string, object> dict)
         {
