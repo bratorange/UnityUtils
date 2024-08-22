@@ -20,82 +20,86 @@ namespace com.jsch.UnityUtil
             return DictToJson(dict);
         }
 
- private Dictionary<string, object> SerializeObjectToDict(string path, object obj)
-    {
-        if (obj == null)
+        private Dictionary<string, object> SerializeObjectToDict(string path, object obj)
         {
-            return null;
-        }
-
-        if (_objectToPath.TryGetValue(obj, out string existingPath))
-        {
-            return new Dictionary<string, object> { { "$ref", existingPath } };
-        }
-
-        var dict = new Dictionary<string, object>();
-
-        if (!(obj.GetType().IsPrimitive || obj is string || obj.GetType().IsEnum))
-        {
-            _objectToPath[obj] = path;
-        }
-
-        dict["$type"] = obj.GetType().AssemblyQualifiedName;
-
-        if (UnityTypes.SerializeUnityType(obj, out var unityTypeDict))
-        {
-            foreach (var kvp in unityTypeDict)
+            if (obj == null)
             {
-                dict[kvp.Key] = kvp.Value;
+                return null;
             }
-        }
-        else if (obj is IDictionary dictionary)
-        {
-            var keys = new List<object>();
-            var values = new List<object>();
-            foreach (DictionaryEntry entry in dictionary)
+
+            if (_objectToPath.TryGetValue(obj, out string existingPath))
             {
-                keys.Add(SerializeObjectToDict($"{path}[key]", entry.Key));
-                values.Add(SerializeObjectToDict($"{path}[{entry.Key}]", entry.Value));
+                return new Dictionary<string, object> { { "$ref", existingPath } };
             }
-            dict["$keys"] = keys;
-            dict["$values"] = values;
-        }
-        else if (obj is IList list)
-        {
-            var values = new List<object>();
-            for (int i = 0; i < list.Count; i++)
+
+            var dict = new Dictionary<string, object>();
+
+            if (!(obj.GetType().IsPrimitive || obj is string || obj.GetType().IsEnum))
             {
-                values.Add(SerializeObjectToDict($"{path}[{i}]", list[i]));
+                _objectToPath[obj] = path;
             }
-            dict["$values"] = values;
-        }
-        else if (obj.GetType().IsPrimitive || obj is string)
-        {
-            dict["$value"] = obj;
-        }
-        else if (obj.GetType().IsEnum)
-        {
-            dict["$value"] = obj.ToString();
-        }
-        else
-        {
-            Type currentType = obj.GetType();
-            while (currentType != null)
+
+            dict["$type"] = obj.GetType().AssemblyQualifiedName;
+
+            if (UnityTypes.SerializeUnityType(obj, out var unityTypeDict))
             {
-                var fieldInfos = currentType.GetFields(BindingFlags.Public | BindingFlags.NonPublic |
-                                                       BindingFlags.Instance | BindingFlags.DeclaredOnly);
-                foreach (var field in fieldInfos)
+                foreach (var kvp in unityTypeDict)
                 {
-                    if (field.IsNotSerialized) continue;
-                    if (field.FieldType == typeof(System.IntPtr)) continue;
-                    dict[field.Name] = SerializeObjectToDict($"{path}.{field.Name}", field.GetValue(obj));
+                    dict[kvp.Key] = kvp.Value;
                 }
-                currentType = currentType.BaseType;
             }
+            else if (obj is IDictionary dictionary)
+            {
+                var keys = new List<object>();
+                var values = new List<object>();
+                foreach (DictionaryEntry entry in dictionary)
+                {
+                    keys.Add(SerializeObjectToDict($"{path}[key]", entry.Key));
+                    values.Add(SerializeObjectToDict($"{path}[{entry.Key}]", entry.Value));
+                }
+
+                dict["$keys"] = keys;
+                dict["$values"] = values;
+            }
+            else if (obj is IList list)
+            {
+                var values = new List<object>();
+                for (int i = 0; i < list.Count; i++)
+                {
+                    values.Add(SerializeObjectToDict($"{path}[{i}]", list[i]));
+                }
+
+                dict["$values"] = values;
+            }
+            else if (obj.GetType().IsPrimitive || obj is string)
+            {
+                dict["$value"] = obj;
+            }
+            else if (obj.GetType().IsEnum)
+            {
+                dict["$value"] = obj.ToString();
+            }
+            else
+            {
+                Type currentType = obj.GetType();
+                while (currentType != null)
+                {
+                    var fieldInfos = currentType.GetFields(BindingFlags.Public | BindingFlags.NonPublic |
+                                                           BindingFlags.Instance | BindingFlags.DeclaredOnly);
+                    foreach (var field in fieldInfos)
+                    {
+                        if (field.IsNotSerialized) continue;
+                        if (field.FieldType == typeof(System.IntPtr)) continue;
+                        dict[field.Name] = SerializeObjectToDict($"{path}.{field.Name}", field.GetValue(obj));
+                    }
+
+                    currentType = currentType.BaseType;
+                }
+            }
+
+            return dict;
         }
 
-        return dict;
-    }
         public static T Deserialize<T>(string json)
         {
             var serializer = new Serializer();
@@ -143,15 +147,18 @@ namespace com.jsch.UnityUtil
                     for (int i = 0; i < keysList.Count; i++)
                     {
                         object key = DeserializeObjectFromDict($"{path}[key]", (Dictionary<string, object>)keysList[i]);
-                        object value = DeserializeObjectFromDict($"{path}[{key}]", (Dictionary<string, object>)valuesList[i]);
+                        object value = DeserializeObjectFromDict($"{path}[{key}]",
+                            (Dictionary<string, object>)valuesList[i]);
                         dictionary.Add(key, value);
                     }
+
                     obj = dictionary;
                 }
                 else
                 {
                     throw new InvalidOperationException($"Expected IDictionary, but got {type}");
                 }
+
                 _pathToObject[path] = obj;
             }
             else if (dict.TryGetValue("$values", out var listValues))
@@ -177,9 +184,11 @@ namespace com.jsch.UnityUtil
                                 continue;
                             }
                         }
+
                         list.Add(item);
                     }
                 }
+
                 obj = list;
                 _pathToObject[path] = obj;
             }
@@ -223,9 +232,11 @@ namespace com.jsch.UnityUtil
                                     }
                                 }
                             }
+
                             field.SetValue(obj, fieldValue);
                         }
                     }
+
                     currentType = currentType.BaseType;
                 }
             }
@@ -354,7 +365,7 @@ namespace com.jsch.UnityUtil
                 }
             }
         }
-        
+
         private object CreateInstance(Type type)
         {
             object instance;
@@ -373,9 +384,10 @@ namespace com.jsch.UnityUtil
             {
                 // If Activator.CreateInstance fails, use FormatterServices.GetUninitializedObject
                 instance = FormatterServices.GetUninitializedObject(type);
-        
+
                 // Initialize non-primitive fields to their default values
-                foreach (var field in type.GetFields(BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance))
+                foreach (var field in type.GetFields(BindingFlags.Public | BindingFlags.NonPublic |
+                                                     BindingFlags.Instance))
                 {
                     if (!field.FieldType.IsPrimitive && field.FieldType != typeof(string))
                     {
@@ -383,10 +395,11 @@ namespace com.jsch.UnityUtil
                     }
                 }
             }
+
             return instance;
         }
 
-        
+
         private static object ParseValue(string json, ref int index)
         {
             ConsumeWhitespace(json, ref index);
@@ -572,6 +585,81 @@ namespace com.jsch.UnityUtil
             {
                 index++;
             }
+        }
+
+        public static string FormatJson(string json)
+        {
+            int indentSize = 2;
+            int indentLevel = 0;
+            bool inQuotes = false;
+            bool escapeNext = false;
+            StringBuilder sb = new StringBuilder();
+
+            for (int i = 0; i < json.Length; i++)
+            {
+                char ch = json[i];
+
+                if (escapeNext)
+                {
+                    sb.Append(ch);
+                    escapeNext = false;
+                }
+                else
+                {
+                    switch (ch)
+                    {
+                        case '\\':
+                            sb.Append(ch);
+                            escapeNext = true;
+                            break;
+                        case '"':
+                            sb.Append(ch);
+                            inQuotes = !inQuotes;
+                            break;
+                        case '{':
+                        case '[':
+                            sb.Append(ch);
+                            if (!inQuotes)
+                            {
+                                sb.AppendLine();
+                                indentLevel++;
+                                sb.Append(new string(' ', indentLevel * indentSize));
+                            }
+
+                            break;
+                        case '}':
+                        case ']':
+                            if (!inQuotes)
+                            {
+                                sb.AppendLine();
+                                indentLevel--;
+                                sb.Append(new string(' ', indentLevel * indentSize));
+                            }
+
+                            sb.Append(ch);
+                            break;
+                        case ',':
+                            sb.Append(ch);
+                            if (!inQuotes)
+                            {
+                                sb.AppendLine();
+                                sb.Append(new string(' ', indentLevel * indentSize));
+                            }
+
+                            break;
+                        case ':':
+                            sb.Append(ch);
+                            if (!inQuotes)
+                                sb.Append(" ");
+                            break;
+                        default:
+                            sb.Append(ch);
+                            break;
+                    }
+                }
+            }
+
+            return sb.ToString();
         }
     }
 }
