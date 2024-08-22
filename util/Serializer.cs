@@ -20,88 +20,82 @@ namespace com.jsch.UnityUtil
             return DictToJson(dict);
         }
 
-        private Dictionary<string, object> SerializeObjectToDict(string path, object obj)
+ private Dictionary<string, object> SerializeObjectToDict(string path, object obj)
+    {
+        if (obj == null)
         {
-            if (obj == null)
-            {
-                return null;
-            }
-
-            if (_objectToPath.TryGetValue(obj, out string existingPath))
-            {
-                return new Dictionary<string, object> { { "$ref", existingPath } };
-            }
-
-            var dict = new Dictionary<string, object>();
-
-            if (!(obj.GetType().IsPrimitive || obj is string || obj.GetType().IsEnum))
-            {
-                _objectToPath[obj] = path;
-            }
-
-            dict["$type"] = obj.GetType().AssemblyQualifiedName;
-
-            if (obj is UnityEngine.Object unityObject)
-            {
-                dict["$name"] = unityObject.name;
-                dict["$hideFlags"] = (int)unityObject.hideFlags;
-            }
-
-            if (UnityTypes.SerializeUnityType(obj, out var unityTypeDict))
-            {
-                foreach (var kvp in unityTypeDict)
-                {
-                    dict[kvp.Key] = kvp.Value;
-                }
-            }
-            else if (obj is IDictionary dictionary)
-            {
-                var keys = new List<object>();
-                var values = new List<object>();
-                foreach (DictionaryEntry entry in dictionary)
-                {
-                    keys.Add(SerializeObjectToDict($"{path}[key]", entry.Key));
-                    values.Add(SerializeObjectToDict($"{path}[{entry.Key}]", entry.Value));
-                }
-                dict["$keys"] = keys;
-                dict["$values"] = values;
-            }
-            else if (obj is IList list)
-            {
-                var values = new List<object>();
-                for (int i = 0; i < list.Count; i++)
-                {
-                    values.Add(SerializeObjectToDict($"{path}[{i}]", list[i]));
-                }
-                dict["$values"] = values;
-            }
-            else if (obj.GetType().IsPrimitive || obj is string)
-            {
-                dict["$value"] = obj;
-            }
-            else if (obj.GetType().IsEnum)
-            {
-                dict["$value"] = obj.ToString();
-            }
-            else
-            {
-                Type currentType = obj.GetType();
-                while (currentType != null)
-                {
-                    var fieldInfos = currentType.GetFields(BindingFlags.Public | BindingFlags.NonPublic |
-                                                           BindingFlags.Instance | BindingFlags.DeclaredOnly);
-                    foreach (var field in fieldInfos)
-                    {
-                        if (field.IsNotSerialized) continue;
-                        dict[field.Name] = SerializeObjectToDict($"{path}.{field.Name}", field.GetValue(obj));
-                    }
-                    currentType = currentType.BaseType;
-                }
-            }
-
-            return dict;
+            return null;
         }
 
+        if (_objectToPath.TryGetValue(obj, out string existingPath))
+        {
+            return new Dictionary<string, object> { { "$ref", existingPath } };
+        }
+
+        var dict = new Dictionary<string, object>();
+
+        if (!(obj.GetType().IsPrimitive || obj is string || obj.GetType().IsEnum))
+        {
+            _objectToPath[obj] = path;
+        }
+
+        dict["$type"] = obj.GetType().AssemblyQualifiedName;
+
+        if (UnityTypes.SerializeUnityType(obj, out var unityTypeDict))
+        {
+            foreach (var kvp in unityTypeDict)
+            {
+                dict[kvp.Key] = kvp.Value;
+            }
+        }
+        else if (obj is IDictionary dictionary)
+        {
+            var keys = new List<object>();
+            var values = new List<object>();
+            foreach (DictionaryEntry entry in dictionary)
+            {
+                keys.Add(SerializeObjectToDict($"{path}[key]", entry.Key));
+                values.Add(SerializeObjectToDict($"{path}[{entry.Key}]", entry.Value));
+            }
+            dict["$keys"] = keys;
+            dict["$values"] = values;
+        }
+        else if (obj is IList list)
+        {
+            var values = new List<object>();
+            for (int i = 0; i < list.Count; i++)
+            {
+                values.Add(SerializeObjectToDict($"{path}[{i}]", list[i]));
+            }
+            dict["$values"] = values;
+        }
+        else if (obj.GetType().IsPrimitive || obj is string)
+        {
+            dict["$value"] = obj;
+        }
+        else if (obj.GetType().IsEnum)
+        {
+            dict["$value"] = obj.ToString();
+        }
+        else
+        {
+            Type currentType = obj.GetType();
+            while (currentType != null)
+            {
+                var fieldInfos = currentType.GetFields(BindingFlags.Public | BindingFlags.NonPublic |
+                                                       BindingFlags.Instance | BindingFlags.DeclaredOnly);
+                foreach (var field in fieldInfos)
+                {
+                    if (field.IsNotSerialized) continue;
+                    if (field.FieldType == typeof(System.IntPtr)) continue;
+                    dict[field.Name] = SerializeObjectToDict($"{path}.{field.Name}", field.GetValue(obj));
+                }
+                currentType = currentType.BaseType;
+            }
+        }
+
+        return dict;
+    }
         public static T Deserialize<T>(string json)
         {
             var serializer = new Serializer();
@@ -195,24 +189,12 @@ namespace com.jsch.UnityUtil
 
                 _pathToObject[path] = obj;
 
-                if (obj is UnityEngine.Object unityObj)
-                {
-                    if (dict.TryGetValue("$name", out object name))
-                    {
-                        unityObj.name = (string)name;
-                    }
-                    if (dict.TryGetValue("$hideFlags", out object hideFlags))
-                    {
-                        unityObj.hideFlags = (HideFlags)Convert.ToInt32(hideFlags);
-                    }
-                }
-
                 Type currentType = type;
                 while (currentType != null)
                 {
                     foreach (var kvp in dict)
                     {
-                        if (kvp.Key == "$type" || kvp.Key == "$name" || kvp.Key == "$hideFlags") continue;
+                        if (kvp.Key == "$type") continue;
 
                         var field = currentType.GetField(kvp.Key,
                             BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance |
